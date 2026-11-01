@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chess</title>
+<style>
+  :root {
+    --bg: #23201c;
+    --panel: #34302a;
+    --text: #f1ede6;
+    --muted: #b5ab9c;
+    --light: #eed9b6;
+    --dark: #b08560;
+    --sel: rgba(246, 205, 70, 0.75);
+    --last: rgba(246, 205, 70, 0.42);
+    --hint: rgba(30, 30, 30, 0.28);
+    --check: rgba(220, 50, 40, 0.85);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+  h1 { margin: 0 0 12px; font-weight: 600; letter-spacing: 0.05em; }
+  .bar {
+    display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; justify-content: center; margin-bottom: 8px;
+  }
+  .player {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); padding: 6px 14px; border-radius: 999px;
+    border: 2px solid transparent; min-height: 36px;
+  }
+  .player.active { border-color: #f6cd46; }
+  .captured { font-size: 18px; line-height: 1; letter-spacing: -2px; min-width: 10px; }
+  .captured .w { color: #fff; -webkit-text-stroke: 0.6px #222; }
+  .captured .b { color: #111; -webkit-text-stroke: 0.4px #888; }
+  #status { min-height: 1.4em; margin: 4px 0 12px; color: var(--muted); text-align: center; }
+  #status.alert { color: #ff8a7a; font-weight: 600; }
+  .wrap { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    width: min(92vw, 520px);
+    aspect-ratio: 1;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    user-select: none;
+  }
+  .sq {
+    position: relative; border: none; padding: 0; margin: 0;
+    min-width: 0; min-height: 0; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-size: min(9.2vw, 52px); line-height: 1; cursor: default;
+    font-family: "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols 2", serif;
+  }
+  .sq.light { background: var(--light); }
+  .sq.dark { background: var(--dark); }
+  .sq.last { box-shadow: inset 0 0 0 100px var(--last); }
+  .sq.sel { box-shadow: inset 0 0 0 100px var(--sel); }
+  .sq.check { background-image: radial-gradient(circle, var(--check) 0%, rgba(220,50,40,0.4) 45%, transparent 72%); }
+  .sq.movable, .sq.target { cursor: pointer; }
+  .sq.target::after {
+    content: ""; position: absolute; inset: 37%; border-radius: 50%; background: var(--hint);
+  }
+  .sq.target.capture::after {
+    inset: 4%; background: transparent; border: 5px solid var(--hint);
+  }
+  .piece { position: relative; z-index: 1; pointer-events: none; }
+  .piece.w { color: #fff; -webkit-text-stroke: 1.2px #222; text-shadow: 0 2px 2px rgba(0,0,0,0.3); }
+  .piece.b { color: #151515; -webkit-text-stroke: 0.6px #000; text-shadow: 0 2px 2px rgba(0,0,0,0.25); }
+  .coord {
+    position: absolute; font-size: 11px; font-weight: 600; font-family: system-ui, sans-serif;
+    pointer-events: none;
+  }
+  .coord.rank { top: 3px; left: 4px; }
+  .coord.file { bottom: 2px; right: 4px; }
+  .sq.light .coord { color: var(--dark); }
+  .sq.dark .coord { color: var(--light); }
+  #moves {
+    width: min(92vw, 200px); max-height: 520px; overflow-y: auto;
+    background: var(--panel); border-radius: 8px; padding: 10px 12px; margin: 0;
+    font-variant-numeric: tabular-nums; font-size: 14px; list-style: none;
+  }
+  #moves li { display: grid; grid-template-columns: 2.2em 1fr 1fr; padding: 2px 0; }
+  #moves li span:first-child { color: var(--muted); }
+  #moves:empty::before { content: "No moves yet"; color: var(--muted); }
+  .controls {
+    margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap;
+    justify-content: center; align-items: center;
+  }
+  button.btn, select {
+    background: var(--panel); color: var(--text);
+    border: 1px solid #5a5248; border-radius: 8px;
+    padding: 8px 14px; font-size: 15px; cursor: pointer;
+  }
+  button.btn:hover { background: #443e36; }
+  label { color: var(--muted); font-size: 15px; }
+  #promo {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    display: none; align-items: center; justify-content: center; z-index: 10;
+  }
+  #promo.open { display: flex; }
+  #promo .box { background: var(--panel); padding: 16px; border-radius: 10px; text-align: center; }
+  #promo .choices { display: flex; gap: 8px; margin-top: 10px; }
+  #promo button {
+    width: 64px; height: 64px; font-size: 44px; line-height: 1;
+    background: var(--light); border: none; border-radius: 8px; cursor: pointer;
+    font-family: "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols 2", serif;
+  }
+  #promo button:hover { background: #f6cd46; }
+</style>
+</head>
+<body>
+  <h1>Chess</h1>
+
+  <div class="bar">
+    <div class="player" id="p-w"><strong>White</strong> <span class="captured" id="cap-w"></span></div>
+    <div class="player" id="p-b"><strong>Black</strong> <span class="captured" id="cap-b"></span></div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="wrap">
+    <div id="board" role="grid" aria-label="Chess board"></div>
+    <ol id="moves" aria-label="Move list"></ol>
+  </div>
+
+  <div class="controls">
+    <label for="mode">Mode</label>
+    <select id="mode">
+      <option value="cpu-w">vs Computer (you are White)</option>
+      <option value="cpu-b">vs Computer (you are Black)</option>
+      <option value="pvp">2 Players</option>
+    </select>
+    <label for="level">Level</label>
+    <select id="level">
+      <option value="1">Easy</option>
+      <option value="2" selected>Medium</option>
+      <option value="3">Hard</option>
+    </select>
+    <button class="btn" id="undo">Undo</button>
+    <button class="btn" id="restart">New game</button>
+  </div>
+
+  <div id="promo" role="dialog" aria-label="Choose promotion piece">
+    <div class="box">Promote to
+      <div class="choices" id="promo-choices"></div>
+    </div>
+  </div>
+
+<script>
+// ---------- Rules ----------
+// Board is a 64-entry array, index = row * 8 + col, row 0 = rank 8.
+// Each square is null or a 2-char string: color ("w"/"b") + type ("K","Q","R","B","N","P").
+const GLYPH = { K: "♚", Q: "♛", R: "♜", B: "♝", N: "♞", P: "♟︎" };
+const VALUE = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0 };
+const KNIGHT = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+const KING = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+const ROOK_DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+const BISHOP_DIRS = [[-1,-1],[-1,1],[1,-1],[1,1]];
+const FILES = "abcdefgh";
+const other = c => (c === "w" ? "b" : "w");
+const sqName = i => FILES[i & 7] + (8 - (i >> 3));
+
+function initialState() {
+  const back = "RNBQKBNR";
+  const b = Array(64).fill(null);
+  for (let c = 0; c < 8; c++) {
+    b[c] = "b" + back[c]; b[8 + c] = "bP";
+    b[48 + c] = "wP"; b[56 + c] = "w" + back[c];
+  }
+  return { b, turn: "w", castle: { wK: true, wQ: true, bK: true, bQ: true }, ep: -1, half: 0 };
+}
+
+function isAttacked(b, sq, by) {
+  const r = sq >> 3, c = sq & 7;
+  // Pawns: a white pawn attacks upward, so it sits one row below the target.
+  const pr = by === "w" ? r + 1 : r - 1;
+  if (pr >= 0 && pr < 8) {
+    for (const dc of [-1, 1]) {
+      const cc = c + dc;
+      if (cc >= 0 && cc < 8 && b[pr * 8 + cc] === by + "P") return true;
+    }
+  }
+  for (const [dr, dc] of KNIGHT) {
+    const rr = r + dr, cc = c + dc;
+    if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === by + "N") return true;
+  }
+  for (const [dr, dc] of KING) {
+    const rr = r + dr, cc = c + dc;
+    if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === by + "K") return true;
+  }
+  const slide = (dirs, types) => {
+    for (const [dr, dc] of dirs) {
+      let rr = r + dr, cc = c + dc;
+      while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+        const p = b[rr * 8 + cc];
+        if (p) { if (p[0] === by && types.includes(p[1])) return true; break; }
+        rr += dr; cc += dc;
+      }
+    }
+    return false;
+  };
+  return slide(ROOK_DIRS, "RQ") || slide(BISHOP_DIRS, "BQ");
+}
+
+const kingSq = (b, color) => b.indexOf(color + "K");
+const inCheck = (s, color = s.turn) => isAttacked(s.b, kingSq(s.b, color), other(color));
+
+function pseudoMoves(s) {
+  const { b, turn: me } = s;
+  const moves = [];
+  const addPawn = (from, to, promoRow, extra = {}) => {
+    if ((to >> 3) === promoRow) for (const p of "QRBN") moves.push({ from, to, promo: p, ...extra });
+    else moves.push({ from, to, ...extra });
+  };
+  for (let i = 0; i < 64; i++) {
+    const p = b[i];
+    if (!p || p[0] !== me) continue;
+    const r = i >> 3, c = i & 7, t = p[1];
+    if (t === "P") {
+      const dir = me === "w" ? -1 : 1, startRow = me === "w" ? 6 : 1, promoRow = me === "w" ? 0 : 7;
+      const r1 = r + dir;
+      if (!b[r1 * 8 + c]) {
+        addPawn(i, r1 * 8 + c, promoRow);
+        const r2 = r + 2 * dir;
+        if (r === startRow && !b[r2 * 8 + c]) moves.push({ from: i, to: r2 * 8 + c, double: true });
+      }
+      for (const dc of [-1, 1]) {
+        const cc = c + dc;
+        if (cc < 0 || cc > 7) continue;
+        const j = r1 * 8 + cc;
+        if (b[j] && b[j][0] !== me) addPawn(i, j, promoRow);
+        else if (j === s.ep) moves.push({ from: i, to: j, ep: true });
+      }
+    } else if (t === "N" || t === "K") {
+      for (const [dr, dc] of t === "N" ? KNIGHT : KING) {
+        const rr = r + dr, cc = c + dc;
+        if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+        const j = rr * 8 + cc;
+        if (!b[j] || b[j][0] !== me) moves.push({ from: i, to: j });
+      }
+      if (t === "K") {
+        const base = me === "w" ? 56 : 0, them = other(me);
+        if (i === base + 4 && !isAttacked(b, i, them)) {
+          if (s.castle[me + "K"] && !b[base + 5] && !b[base + 6] && b[base + 7] === me + "R" &&
+              !isAttacked(b, base + 5, them) && !isAttacked(b, base + 6, them))
+            moves.push({ from: i, to: base + 6, castle: "K" });
+          if (s.castle[me + "Q"] && !b[base + 3] && !b[base + 2] && !b[base + 1] && b[base] === me + "R" &&
+              !isAttacked(b, base + 3, them) && !isAttacked(b, base + 2, them))
+            moves.push({ from: i, to: base + 2, castle: "Q" });
+        }
+      }
+    } else {
+      const dirs = t === "R" ? ROOK_DIRS : t === "B" ? BISHOP_DIRS : ROOK_DIRS.concat(BISHOP_DIRS);
+      for (const [dr, dc] of dirs) {
+        let rr = r + dr, cc = c + dc;
+        while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+          const j = rr * 8 + cc;
+          if (b[j]) { if (b[j][0] !== me) moves.push({ from: i, to: j }); break; }
+          moves.push({ from: i, to: j });
+          rr += dr; cc += dc;
+        }
+      }
+    }
+  }
+  return moves;
+}
+
+function applyMove(s, m) {
+  const b = s.b.slice();
+  const p = b[m.from], me = p[0];
+  const captured = m.ep ? other(me) + "P" : b[m.to];
+  b[m.to] = m.promo ? me + m.promo : p;
+  b[m.from] = null;
+  if (m.ep) b[m.to + (me === "w" ? 8 : -8)] = null;
+  if (m.castle) {
+    const base = me === "w" ? 56 : 0;
+    if (m.castle === "K") { b[base + 5] = b[base + 7]; b[base + 7] = null; }
+    else { b[base + 3] = b[base]; b[base] = null; }
+  }
+  const castle = { ...s.castle };
+  if (p[1] === "K") { castle[me + "K"] = false; castle[me + "Q"] = false; }
+  for (const sq of [m.from, m.to]) {
+    if (sq === 63) castle.wK = false; else if (sq === 56) castle.wQ = false;
+    else if (sq === 7) castle.bK = false; else if (sq === 0) castle.bQ = false;
+  }
+  return {
+    b, castle, turn: other(me),
+    ep: m.double ? (m.from + m.to) / 2 : -1,
+    half: p[1] === "P" || captured ? 0 : s.half + 1,
+    captured,
+  };
+}
+
+function legalMoves(s) {
+  return pseudoMoves(s).filter(m => !inCheck(applyMove(s, m), s.turn));
+}
+
+const positionKey = s =>
+  s.b.map(p => p || "--").join("") + s.turn + Object.values(s.castle).map(Number).join("") + s.ep;
+
+function insufficientMaterial(b) {
+  const pieces = b.filter(p => p && p[1] !== "K");
+  if (pieces.length === 0) return true;
+  if (pieces.length === 1 && "BN".includes(pieces[0][1])) return true;
+  return false;
+}
+
+function toSAN(s, m, legal) {
+  const p = s.b[m.from];
+  let san;
+  if (m.castle) san = m.castle === "K" ? "O-O" : "O-O-O";
+  else {
+    const capture = s.b[m.to] || m.ep;
+    if (p[1] === "P") {
+      san = (capture ? FILES[m.from & 7] + "x" : "") + sqName(m.to) + (m.promo ? "=" + m.promo : "");
+    } else {
+      const rivals = legal.filter(o => o.to === m.to && o.from !== m.from && s.b[o.from] === p);
+      let dis = "";
+      if (rivals.length) {
+        const sameFile = rivals.some(o => (o.from & 7) === (m.from & 7));
+        const sameRank = rivals.some(o => (o.from >> 3) === (m.from >> 3));
+        if (!sameFile) dis = FILES[m.from & 7];
+        else if (!sameRank) dis = sqName(m.from)[1];
+        else dis = sqName(m.from);
+      }
+      san = p[1] + dis + (capture ? "x" : "") + sqName(m.to);
+    }
+  }
+  const next = applyMove(s, m);
+  if (inCheck(next)) san += legalMoves(next).length ? "+" : "#";
+  return san;
+}
+
+// ---------- Computer player ----------
+// Small positional bonuses (from White's point of view, row 0 = rank 8).
+const CENTER = [];
+for (let i = 0; i < 64; i++) {
+  const r = i >> 3, c = i & 7;
+  CENTER[i] = 3.5 - Math.max(Math.abs(r - 3.5), Math.abs(c - 3.5)); // 0 (edge) .. 3 (center)
+}
+
+function evaluate(s) {
+  let score = 0, material = 0;
+  for (let i = 0; i < 64; i++) {
+    const p = s.b[i];
+    if (p && p[1] !== "K" && p[1] !== "P") material += VALUE[p[1]];
+  }
+  const endgame = material < 2600;
+  for (let i = 0; i < 64; i++) {
+    const p = s.b[i];
+    if (!p) continue;
+    const t = p[1], sign = p[0] === "w" ? 1 : -1;
+    let v = VALUE[t];
+    const advance = p[0] === "w" ? 6 - (i >> 3) : (i >> 3) - 1;
+    if (t === "P") v += advance * (endgame ? 12 : 6) + (CENTER[i] >= 2 ? 10 : 0);
+    else if (t === "N") v += CENTER[i] * 10 - 15;
+    else if (t === "B") v += CENTER[i] * 5;
+    else if (t === "Q") v += CENTER[i] * 2;
+    else if (t === "K") v += endgame ? CENTER[i] * 10 : (advance === -1 ? 15 : -advance * 15);
+    score += sign * v;
+  }
+  return s.turn === "w" ? score : -score;
+}
+
+const orderMoves = (s, moves) =>
+  moves.sort((a, b) => moveScore(s, b) - moveScore(s, a));
+function moveScore(s, m) {
+  const victim = m.ep ? 100 : s.b[m.to] ? VALUE[s.b[m.to][1]] : 0;
+  return (victim ? 10 * victim - VALUE[s.b[m.from][1]] / 10 : 0) + (m.promo ? VALUE[m.promo] : 0);
+}
+
+function quiesce(s, alpha, beta, depth) {
+  const stand = evaluate(s);
+  if (stand >= beta || depth <= 0) return stand;
+  if (stand > alpha) alpha = stand;
+  const caps = orderMoves(s, pseudoMoves(s).filter(m => s.b[m.to] || m.ep || m.promo === "Q"));
+  for (const m of caps) {
+    const next = applyMove(s, m);
+    if (inCheck(next, s.turn)) continue;
+    const score = -quiesce(next, -beta, -alpha, depth - 1);
+    if (score >= beta) return score;
+    if (score > alpha) alpha = score;
+  }
+  return alpha;
+}
+
+function search(s, depth, alpha, beta, ply) {
+  if (depth === 0) return quiesce(s, alpha, beta, 4);
+  let legal = 0;
+  for (const m of orderMoves(s, pseudoMoves(s))) {
+    const next = applyMove(s, m);
+    if (inCheck(next, s.turn)) continue;
+    legal++;
+    const score = -search(next, depth - 1, -beta, -alpha, ply + 1);
+    if (score >= beta) return score;
+    if (score > alpha) alpha = score;
+  }
+  if (!legal) return inCheck(s) ? -100000 + ply : 0;
+  return alpha;
+}
+
+function bestMove(s, depth) {
+  const moves = orderMoves(s, legalMoves(s));
+  let best = [], bestScore = -Infinity;
+  for (const m of moves) {
+    let score = -search(applyMove(s, m), depth - 1, -Infinity, Infinity, 1);
+    if (depth === 1) score += Math.random() * 60; // Easy: some variety and mistakes
+    if (score > bestScore + 0.5) { bestScore = score; best = [m]; }
+    else if (Math.abs(score - bestScore) <= 0.5) best.push(m);
+  }
+  return best[Math.floor(Math.random() * best.length)];
+}
+
+// ---------- UI ----------
+const boardEl = document.getElementById("board");
+const statusEl = document.getElementById("status");
+const movesEl = document.getElementById("moves");
+const modeEl = document.getElementById("mode");
+const levelEl = document.getElementById("level");
+const promoEl = document.getElementById("promo");
+
+let state, history, sanList, lastMove, selected, legal, gameOver, thinking, searchToken = 0;
+
+const human = () => modeEl.value === "pvp" ? state.turn : modeEl.value === "cpu-w" ? "w" : "b";
+const flipped = () => modeEl.value === "cpu-b";
+
+function newGame() {
+  searchToken++;
+  state = initialState();
+  history = [];
+  sanList = [];
+  lastMove = null;
+  selected = -1;
+  gameOver = false;
+  thinking = false;
+  promoEl.classList.remove("open");
+  refresh();
+}
+
+function refresh() {
+  legal = legalMoves(state);
+  const key = positionKey(state);
+  const reps = history.filter(h => h.key === key).length + 1;
+  const checked = inCheck(state);
+  const name = state.turn === "w" ? "White" : "Black";
+  let msg = "", alert = false;
+  gameOver = true;
+  if (!legal.length && checked) { msg = `Checkmate! ${state.turn === "w" ? "Black" : "White"} wins.`; alert = true; }
+  else if (!legal.length) msg = "Stalemate — draw.";
+  else if (insufficientMaterial(state.b)) msg = "Draw — insufficient material.";
+  else if (state.half >= 100) msg = "Draw — 50-move rule.";
+  else if (reps >= 3) msg = "Draw — threefold repetition.";
+  else {
+    gameOver = false;
+    msg = `${name} to move` + (checked ? " — check!" : "");
+    alert = checked;
+    if (thinking) msg = "Computer is thinking…";
+  }
+  statusEl.textContent = msg;
+  statusEl.classList.toggle("alert", alert);
+  render();
+  maybeComputerMove();
+}
+
+function render() {
+  boardEl.innerHTML = "";
+  const targets = selected >= 0 ? legal.filter(m => m.from === selected) : [];
+  const checkSq = inCheck(state) ? kingSq(state.b, state.turn) : -1;
+  const myTurn = !gameOver && !thinking && state.turn === human();
+  for (let k = 0; k < 64; k++) {
+    const i = flipped() ? 63 - k : k;
+    const r = i >> 3, c = i & 7;
+    const cell = document.createElement("button");
+    cell.className = "sq " + ((r + c) % 2 ? "dark" : "light");
+    const p = state.b[i];
+    cell.setAttribute("aria-label", sqName(i) + (p ? " " + (p[0] === "w" ? "white " : "black ") + p[1] : ""));
+    if (lastMove && (lastMove.from === i || lastMove.to === i)) cell.classList.add("last");
+    if (i === selected) cell.classList.add("sel");
+    if (i === checkSq) cell.classList.add("check");
+    if (myTurn && p && p[0] === state.turn && legal.some(m => m.from === i)) cell.classList.add("movable");
+    const t = targets.find(m => m.to === i);
+    if (t) { cell.classList.add("target"); if (p || t.ep) cell.classList.add("capture"); }
+    if (p) {
+      const span = document.createElement("span");
+      span.className = "piece " + p[0];
+      span.textContent = GLYPH[p[1]];
+      cell.appendChild(span);
+    }
+    if (k % 8 === 0) cell.insertAdjacentHTML("beforeend", `<span class="coord rank">${8 - r}</span>`);
+    if (k >= 56) cell.insertAdjacentHTML("beforeend", `<span class="coord file">${FILES[c]}</span>`);
+    cell.addEventListener("click", () => onSquare(i));
+    boardEl.appendChild(cell);
+  }
+
+  document.getElementById("p-w").classList.toggle("active", !gameOver && state.turn === "w");
+  document.getElementById("p-b").classList.toggle("active", !gameOver && state.turn === "b");
+  // Captured pieces: show what each side has taken.
+  const taken = { w: [], b: [] };
+  for (const h of history) if (h.captured) taken[other(h.captured[0])].push(h.captured);
+  const order = "QRBNP";
+  for (const side of ["w", "b"]) {
+    taken[side].sort((a, b) => order.indexOf(a[1]) - order.indexOf(b[1]));
+    document.getElementById("cap-" + side).innerHTML =
+      taken[side].map(p => `<span class="${p[0]}">${GLYPH[p[1]]}</span>`).join("");
+  }
+
+  movesEl.innerHTML = "";
+  for (let n = 0; n < sanList.length; n += 2) {
+    const li = document.createElement("li");
+    li.innerHTML = `<span>${n / 2 + 1}.</span><span>${sanList[n]}</span><span>${sanList[n + 1] || ""}</span>`;
+    movesEl.appendChild(li);
+  }
+  movesEl.scrollTop = movesEl.scrollHeight;
+}
+
+function onSquare(i) {
+  if (gameOver || thinking || state.turn !== human()) return;
+  const p = state.b[i];
+  if (selected >= 0) {
+    const options = legal.filter(m => m.from === selected && m.to === i);
+    if (options.length === 1) return play(options[0]);
+    if (options.length > 1) return askPromotion(options);
+  }
+  selected = p && p[0] === state.turn && legal.some(m => m.from === i) && selected !== i ? i : -1;
+  render();
+}
+
+function askPromotion(options) {
+  const box = document.getElementById("promo-choices");
+  box.innerHTML = "";
+  for (const t of "QRBN") {
+    const btn = document.createElement("button");
+    btn.innerHTML = `<span class="piece ${state.turn}">${GLYPH[t]}</span>`;
+    btn.setAttribute("aria-label", { Q: "Queen", R: "Rook", B: "Bishop", N: "Knight" }[t]);
+    btn.addEventListener("click", () => {
+      promoEl.classList.remove("open");
+      play(options.find(m => m.promo === t));
+    });
+    box.appendChild(btn);
+  }
+  promoEl.classList.add("open");
+}
+promoEl.addEventListener("click", e => {
+  if (e.target === promoEl) { promoEl.classList.remove("open"); selected = -1; render(); }
+});
+
+function play(m) {
+  const san = toSAN(state, m, legal);
+  const next = applyMove(state, m);
+  history.push({ state, lastMove, key: positionKey(state), captured: next.captured });
+  sanList.push(san);
+  state = next;
+  lastMove = m;
+  selected = -1;
+  refresh();
+}
+
+function maybeComputerMove() {
+  if (gameOver || thinking || modeEl.value === "pvp" || state.turn === human()) return;
+  thinking = true;
+  statusEl.textContent = "Computer is thinking…";
+  statusEl.classList.remove("alert");
+  render();
+  const token = ++searchToken;
+  setTimeout(() => {
+    const m = bestMove(state, Number(levelEl.value));
+    if (token !== searchToken) return;
+    thinking = false;
+    play(m);
+  }, 250);
+}
+
+function undo() {
+  if (!history.length) return;
+  searchToken++;
+  thinking = false;
+  promoEl.classList.remove("open");
+  // In computer mode, step back to the player's own turn.
+  let steps = modeEl.value === "pvp" ? 1 : (state.turn === human() ? 2 : 1);
+  steps = Math.min(steps, history.length);
+  for (let n = 0; n < steps; n++) {
+    const h = history.pop();
+    sanList.pop();
+    state = h.state;
+    lastMove = h.lastMove;
+  }
+  selected = -1;
+  refresh();
+}
+
+document.getElementById("restart").addEventListener("click", newGame);
+document.getElementById("undo").addEventListener("click", undo);
+modeEl.addEventListener("change", newGame);
+
+newGame();
+</script>
+</body>
+</html>
